@@ -1,16 +1,16 @@
 #include <Arduino.h>
 #include "Led.hpp"
 
-void Led::init(){
-    pinMode(LED_PIN, OUTPUT);
+void Led::init(const GpioConfig& config){
+    pinMode(config.LED_PIN, OUTPUT);
 }
 
-void Led::set(LedState state){
+void Led::set(const GpioConfig& config, LedState state){
     if(state == LedState ::ON) {
 
-      digitalWrite(LED_PIN, HIGH);    
+      digitalWrite(config.LED_PIN, HIGH);    
     }
     else {
-      digitalWrite(LED_PIN, LOW);
+      digitalWrite(config.LED_PIN, LOW);
     }
 }
