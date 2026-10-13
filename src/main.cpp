@@ -2,6 +2,7 @@
 #include "Led.hpp"
 
 void BlinkLogic();
+void IRAM_ATTR onButtonInterrupt();
 
 unsigned long startTime = 0;
 unsigned long blinkStartTime = 0;
@@ -9,43 +10,59 @@ unsigned long blinkStartTime = 0;
 LedState  state = LedState::OFF;
 GpioConfig config;
 Led led;
-LoopMeasurement lm;
+BlinkMode blinkMode = BlinkMode::ALWAYS_ON;
+
+volatile bool button_pressed = false;
+uint32_t last_debounce_time = 0;
 
 void setup() {
 
-  Serial0.begin(115200);
-
   led.init(config);
+
+  attachInterrupt(
+    digitalPinToInterrupt(config.BUTTON_READ_PIN),
+    onButtonInterrupt,
+    RISING);
 }
 
 void loop() {
   
-  uint32_t currentTime = micros();
-
-  if (lm.previousTime != 0)
+  if(button_pressed)
   {
-      uint32_t loopTime = currentTime - lm.previousTime;
+    button_pressed = false;
 
-      lm.totalTime += loopTime;
-      lm.ind++;
+    //debounce the button press
+    uint32_t current_time = millis();
 
-      if (lm.ind == 1000)
-      {
-          float averageTime = (float)lm.totalTime / lm.ind;
+    if (current_time - last_debounce_time >= config.DEBOUNCE_MS)
+    {
+        last_debounce_time = current_time;
 
-          Serial0.print(lm.ind);
-          Serial0.print(" iterations loop time: ");
-          Serial0.print(averageTime);
-          Serial0.println(" microseconds.");
-
-          lm.totalTime = 0;
-          lm.ind = 0;
-      }
+        // Cycle through the blink modes
+        blinkMode = static_cast<BlinkMode>((blinkMode + 1) % 3);
+    }
   }
 
-  lm.previousTime = currentTime;
+  // Handle the LED state based on the current blink mode
+  if(blinkMode == BlinkMode::ALWAYS_ON)
+  {
+    state = LedState::ON;
+    led.set(config, state);
+  }
+  else if(blinkMode == BlinkMode::ALWAYS_OFF)
+  {
+    state = LedState::OFF;
+    led.set(config, state);
+  }
+  else if(blinkMode == BlinkMode::BLINK)
+  {
+    BlinkLogic();
+  }
+}
 
-  BlinkLogic();
+void IRAM_ATTR onButtonInterrupt()
+{
+    button_pressed = true;
 }
 
 void BlinkLogic()

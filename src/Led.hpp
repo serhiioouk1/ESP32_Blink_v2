@@ -1,16 +1,18 @@
 #include <cstdint>
 
-struct LoopMeasurement
-{
-  uint32_t previousTime = 0;
-  uint32_t totalTime = 0;
-  uint16_t ind = 0;
-};
-
 struct GpioConfig
 {
+  static constexpr uint8_t BUTTON_READ_PIN = 11;
   static constexpr uint8_t LED_PIN = 16;
   static constexpr uint16_t blinkInterval = 500;
+  static constexpr uint8_t DEBOUNCE_MS = 60;
+};
+
+enum BlinkMode
+{
+  ALWAYS_ON,
+  ALWAYS_OFF,
+  BLINK
 };
 
 enum class LedState 
