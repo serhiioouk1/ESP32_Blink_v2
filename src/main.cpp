@@ -1,10 +1,12 @@
 #include <Arduino.h>
 
 constexpr uint8_t BUTTON_PIN = 4;
+constexpr uint8_t DEBOUNCE_TIME = 50;
+
+unsigned long lastInterruptTime = 0;
+unsigned long counter = 0;
 
 volatile bool buttonPressed = false;
-
-unsigned long counter = 0;
 
 void IRAM_ATTR onButtonClick() {
   buttonPressed = true;
@@ -19,8 +21,18 @@ void setup() {
 }
 
 void loop() {
+
   if (buttonPressed) {
+
     buttonPressed = false;
-    Serial0.printf("Button pressed! Count: %lu\n", ++counter);
+
+    uint32_t currentTime = millis();
+
+    if (currentTime - lastInterruptTime >= DEBOUNCE_TIME) {
+        
+      lastInterruptTime = currentTime;
+        
+      Serial0.printf("Button pressed! Count: %lu\n", ++counter);
+    }
   }
 }
