@@ -2,12 +2,15 @@
 #include "driver/gpio.h"
 #include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
+#include "esp_timer.h"
 
 const uint8_t BUTTON_PIN = 4;
+const uint8_t DEBOUNCE_TIME = 50;
+
+uint64_t lastInterruptTime = 0;
+unsigned long counter = 0;
 
 volatile bool buttonPressed = false;
-
-unsigned long counter = 0;
 
 void IRAM_ATTR buttonISR(void* arg) {
   buttonPressed = true;
@@ -32,9 +35,19 @@ void setup(void){
 
 void loop(void) {
 
-    if (buttonPressed) {
+  if (buttonPressed) {
+
     buttonPressed = false;
-    printf("Button pressed! Count: %lu\n", ++counter);
+
+    // Отримання поточного часу в мілісекундах, esp_timer_get_time повертає час в мікросекундах, тому ділимо на 1000
+    uint64_t currentTime = esp_timer_get_time() / 1000;
+
+    if (currentTime - lastInterruptTime >= DEBOUNCE_TIME) {
+        
+      lastInterruptTime = currentTime;
+        
+      printf("Button pressed! Count: %lu\n", ++counter);
+    }
   }
 }
 
