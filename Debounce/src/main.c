@@ -2,12 +2,9 @@
 #include "driver/gpio.h"
 #include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
-#include "esp_timer.h"
 
 const uint8_t BUTTON_PIN = 4;
-const uint8_t DEBOUNCE_TIME = 50;
 
-uint64_t lastInterruptTime = 0;
 unsigned long counter = 0;
 
 volatile bool buttonPressed = false;
@@ -36,16 +33,12 @@ void setup(void){
 void loop(void) {
 
   if (buttonPressed) {
-
+      
     buttonPressed = false;
 
-    // Отримання поточного часу в мілісекундах, esp_timer_get_time повертає час в мікросекундах, тому ділимо на 1000
-    uint64_t currentTime = esp_timer_get_time() / 1000;
-
-    if (currentTime - lastInterruptTime >= DEBOUNCE_TIME) {
-        
-      lastInterruptTime = currentTime;
-        
+    //1 - кнопка натиснута (HIGH), 0 - кнопка відпущена (LOW)
+    if (gpio_get_level(BUTTON_PIN) == 0) {
+      
       printf("Button pressed! Count: %lu\n", ++counter);
     }
   }
