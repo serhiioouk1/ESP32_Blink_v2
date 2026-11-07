@@ -1,17 +1,27 @@
 #include <stdint.h>
 #include "driver/gpio.h"
-#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
+#include "esp_timer.h"
 
 const uint8_t BUTTON_PIN = 4;
 
 unsigned long counter = 0;
 
-volatile bool buttonPressed = false;
+const uint8_t POLLING_INTERVAL = 5;
+const uint8_t DEBOUNCE_TIME = 50;
 
-void IRAM_ATTR buttonISR(void* arg) {
-  buttonPressed = true;
-}
+typedef enum {
+    RELEASED = 0,
+    PRESSED = 1
+} button_state;
+
+button_state buttonState = RELEASED;
+
+bool lastRawState = false;
+bool candidateState = false;
+
+uint64_t lastPollingTime = 0;
+uint64_t candidateSince = 0;
 
 void setup(void){
 
@@ -19,27 +29,54 @@ void setup(void){
     gpio_set_direction(BUTTON_PIN, GPIO_MODE_INPUT);
     gpio_set_pull_mode(BUTTON_PIN, GPIO_PULLDOWN_ONLY);
 
+    bool initialState = gpio_get_level(BUTTON_PIN) == 1;
 
-    // Вибір фронту переривання - FALLING
-    gpio_set_intr_type(BUTTON_PIN, GPIO_INTR_NEGEDGE);
+    lastRawState = initialState;
+    candidateState = initialState;
 
-    // Ініціалізація сервісу GPIO Interrupt
-    gpio_install_isr_service(0);
+    buttonState = initialState
+        ? PRESSED
+        : RELEASED;
 
-    // Прив'язка ISR до піна
-    gpio_isr_handler_add(BUTTON_PIN, buttonISR, NULL);
+  candidateSince = esp_timer_get_time() / 1000;
 }
 
 void loop(void) {
 
-  if (buttonPressed) {
-      
-    buttonPressed = false;
+  uint64_t currentTime = esp_timer_get_time() / 1000;
 
-    //1 - кнопка натиснута (HIGH), 0 - кнопка відпущена (LOW)
-    if (gpio_get_level(BUTTON_PIN) == 0) {
-      
-      printf("Button pressed! Count: %lu\n", ++counter);
+  // Опитування кожні 5 мс
+  if (currentTime - lastPollingTime < POLLING_INTERVAL)
+    return;
+
+  lastPollingTime = currentTime;
+
+  // HIGH = натиснута, LOW = відпущена
+  bool rawState = gpio_get_level(BUTTON_PIN) == 1;
+
+  // Виявлення зміни фізичного стану
+  if (rawState != lastRawState)
+  {
+    lastRawState = rawState;
+    candidateState = rawState;
+    candidateSince = currentTime;
+  }
+
+  // Перевірка стабільності протягом 50 мс
+  if (currentTime - candidateSince >= DEBOUNCE_TIME)
+  {
+    bool stablePressed = buttonState == PRESSED;
+
+    if (candidateState != stablePressed)
+    {
+      buttonState = candidateState
+        ? PRESSED
+        : RELEASED;
+
+      if (buttonState == PRESSED)
+      {
+        printf("Button pressed! Count: %lu\n", ++counter);
+      }
     }
   }
 }
