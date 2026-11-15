@@ -44,6 +44,7 @@ void onLightTimerTrigger() {
   lightTimerTriggered = true;
 }
 
+LightState getNextState(LightState currentState);
 void setNewBlinkTimerInterval(uint64_t newInterval);
 void handleLeds(uint8_t red, uint8_t yellow, uint8_t green);
 
@@ -88,54 +89,64 @@ void loop() {
   if(blinkTimerTriggered) {
     blinkTimerTriggered = false;
 
+    state = getNextState(state);
+
     switch( state ) {
         case LightState::Green:
+          
+          handleLeds(HIGH, LOW, LOW);
+          
+          setNewBlinkTimerInterval(GREEN_INTERVAL);
+          break;
+        case LightState::GreenBlinking:
           
           timerWrite(lightTimer, 0); // Скидання таймера
           timerAlarmEnable(lightTimer); // Увімкнення таймера для блимання
 
           setNewBlinkTimerInterval(GREEN_BLINKING_INTERVAL);
-          
-          state = LightState::GreenBlinking;
           break;
-        case LightState::GreenBlinking:
+        case LightState::Yellow:
         
           handleLeds(LOW, HIGH, LOW);
           
           timerAlarmDisable(lightTimer);
 
           setNewBlinkTimerInterval(YELLOW_INTERVAL);
-
-          state = LightState::Yellow;
           break;
-        case LightState::Yellow:
+        case LightState::Red:
           
           handleLeds(LOW, LOW, HIGH);
 
           setNewBlinkTimerInterval(RED_INTERVAL);
-          
-          state = LightState::Red;
           break;
-        case LightState::Red:
+        case LightState::RedYellow:
 
           handleLeds(LOW, HIGH, HIGH);
           
           setNewBlinkTimerInterval(RED_YELLOW_INTERVAL);
-          
-          state = LightState::RedYellow;
           break;
-        case LightState::RedYellow:
-          
-          handleLeds(HIGH, LOW, LOW);
-          
-          setNewBlinkTimerInterval(GREEN_INTERVAL);
-          
-          state = LightState::Green;
-          break;
+        
         /*case LightState::YellowBlinking:
           state = LightState::Red;
           break;*/
       }
+    }
+}
+
+LightState getNextState(LightState currentState) {
+    switch (currentState) {
+        case LightState::Green:
+            return LightState::GreenBlinking;
+        case LightState::GreenBlinking:
+            return LightState::Yellow;
+        case LightState::Yellow:
+            return LightState::Red;
+        case LightState::Red:
+            return LightState::RedYellow;
+        case LightState::RedYellow:
+            return LightState::Green;
+        default:
+            return LightState::Green; // Default to Green if state is unknown
     }
 }
 
