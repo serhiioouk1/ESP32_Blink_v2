@@ -3,6 +3,10 @@
 constexpr uint8_t RED_PIN = 12;
 constexpr uint8_t YELLOW_PIN = 10;
 constexpr uint8_t GREEN_PIN = 7;
+constexpr uint8_t BUTTON_PIN = 4;
+
+constexpr uint8_t POLLING_INTERVAL = 5;
+constexpr uint8_t DEBOUNCE_TIME = 50;
 
 //1000000; //1000000 = 1 second in microseconds
 /*Green_INTERVAL = 6s;
@@ -44,19 +48,53 @@ void onLightTimerTrigger() {
   lightTimerTriggered = true;
 }
 
+void pollingButton();
 LightState getNextState(LightState currentState);
 void setNewBlinkTimerInterval(uint64_t newInterval);
 void handleLeds(uint8_t red, uint8_t yellow, uint8_t green);
 
 LightState state = LightState::Green;
+unsigned long buttonLastInterruptTime = 0;
+
+//button variables
+enum class ButtonState
+{
+    RELEASED,
+    PRESSED
+};
+
+ButtonState buttonState = ButtonState::RELEASED;
+
+bool lastRawState = false;
+bool candidateState = false;
+
+unsigned long lastPollingTime = 0;
+unsigned long candidateSince = 0;
+unsigned long counter = 0;
+bool buttonPressedEvent = false;
 
 void setup() {
+  Serial0.begin(115200);
+
   pinMode(RED_PIN, OUTPUT);
   pinMode(YELLOW_PIN, OUTPUT);
   pinMode(GREEN_PIN, OUTPUT);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
 
   //init green light first
   handleLeds(HIGH, LOW, LOW);
+
+  //button setup
+  bool initialState = digitalRead(BUTTON_PIN) == LOW;
+
+  lastRawState = initialState;
+  candidateState = initialState;
+
+  buttonState = initialState
+    ? ButtonState::PRESSED
+    : ButtonState::RELEASED;
+
+  candidateSince = millis();
 
    // Ініціалізація: таймер 0, дільник 80, напрямок вверх
   blinkTimer = timerBegin(0, 80, true);
@@ -72,18 +110,61 @@ void setup() {
 
 void loop() {
 
+  pollingButton();
+
+  if (buttonPressedEvent)
+  {
+    buttonPressedEvent = false;
+
+    if(state == LightState::YellowBlinking)
+    {
+      state = LightState::Green;
+      handleLeds(HIGH, LOW, LOW);
+      
+      timerWrite(blinkTimer, 0);
+      timerAlarmDisable(lightTimer);
+      timerAlarmEnable(blinkTimer);
+
+      setNewBlinkTimerInterval(GREEN_INTERVAL);
+    }
+    else
+    {
+      state = LightState::YellowBlinking;
+      //timerWrite(lightTimer, 0);
+      timerAlarmEnable(lightTimer);
+      timerAlarmDisable(blinkTimer);
+    }
+
+    Serial0.printf("Button pressed! Count: %lu\n", ++counter);
+  }
+
   if(lightTimerTriggered) {
     lightTimerTriggered = false;
-
-    // Toggle the green LED state
-    static bool isGreenOn = true;
-    if (isGreenOn) {
-      handleLeds(LOW, LOW, LOW); // Turn off green LED
-    } else {
-      handleLeds(HIGH, LOW, LOW); // Turn on green LED
-    }
     
-    isGreenOn = !isGreenOn;
+    if(state == LightState::YellowBlinking)
+    {
+      // Toggle the yellow LED state
+      static bool isYellowOn = true;
+      if (isYellowOn) {
+        handleLeds(LOW, LOW, LOW); // Turn off yellow LED
+      } else {
+        handleLeds(LOW, HIGH, LOW); // Turn on yellow LED
+      }
+      
+      isYellowOn = !isYellowOn;
+    }
+    else
+    {
+      // Toggle the green LED state
+      static bool isGreenOn = true;
+      if (isGreenOn) {
+        handleLeds(LOW, LOW, LOW); // Turn off green LED
+      } else {
+        handleLeds(HIGH, LOW, LOW); // Turn on green LED
+      }
+      
+      isGreenOn = !isGreenOn;
+    }
   }
 
   if(blinkTimerTriggered) {
@@ -125,12 +206,48 @@ void loop() {
           
           setNewBlinkTimerInterval(RED_YELLOW_INTERVAL);
           break;
-        
-        /*case LightState::YellowBlinking:
-          state = LightState::Red;
-          break;*/
       }
     }
+}
+
+void pollingButton()
+{
+  const unsigned long currentTime = millis();
+
+  // Опитування кожні 5 мс
+  if (currentTime - lastPollingTime < POLLING_INTERVAL)
+    return;
+
+  lastPollingTime = currentTime;
+
+  // HIGH = натиснута, LOW = відпущена
+  bool rawState = digitalRead(BUTTON_PIN) == LOW;
+
+  // Виявлення зміни фізичного стану
+  if (rawState != lastRawState)
+  {
+    lastRawState = rawState;
+    candidateState = rawState;
+    candidateSince = currentTime;
+  }
+
+  // Перевірка стабільності протягом 50 мс
+  if (currentTime - candidateSince >= DEBOUNCE_TIME)
+  {
+    bool stablePressed = buttonState == ButtonState::PRESSED;
+
+    if (candidateState != stablePressed)
+    {
+      buttonState = candidateState
+        ? ButtonState::PRESSED
+        : ButtonState::RELEASED;
+
+        if (buttonState == ButtonState::PRESSED)
+        {
+          buttonPressedEvent = true;
+        }
+    }
+  }
 }
 
 LightState getNextState(LightState currentState) {
@@ -145,8 +262,6 @@ LightState getNextState(LightState currentState) {
             return LightState::RedYellow;
         case LightState::RedYellow:
             return LightState::Green;
-        default:
-            return LightState::Green; // Default to Green if state is unknown
     }
 }
 
