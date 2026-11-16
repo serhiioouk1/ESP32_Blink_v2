@@ -49,7 +49,7 @@ void onLightTimerTrigger() {
 }
 
 void pollingButton();
-LightState getNextState(LightState currentState);
+LightState getNextState(LightState currentState, bool buttonPressed);
 void setNewBlinkTimerInterval(uint64_t newInterval);
 void handleLeds(uint8_t red, uint8_t yellow, uint8_t green);
 
@@ -112,25 +112,16 @@ void loop() {
 
   pollingButton();
 
-  if (buttonPressedEvent)
-  {
-    buttonPressedEvent = false;
-
-    if(state == LightState::YellowBlinking)
-    {
-      state = LightState::Green;
-      handleLeds(HIGH, LOW, LOW);
+  if (buttonPressedEvent) {
+    
+    if(state == LightState::YellowBlinking) {
       
       timerWrite(blinkTimer, 0);
       timerAlarmDisable(lightTimer);
       timerAlarmEnable(blinkTimer);
-
-      setNewBlinkTimerInterval(GREEN_INTERVAL);
     }
-    else
-    {
-      state = LightState::YellowBlinking;
-      //timerWrite(lightTimer, 0);
+    else {
+      
       timerAlarmEnable(lightTimer);
       timerAlarmDisable(blinkTimer);
     }
@@ -138,56 +129,46 @@ void loop() {
     Serial0.printf("Button pressed! Count: %lu\n", ++counter);
   }
 
-  if(lightTimerTriggered) {
-    lightTimerTriggered = false;
+  if(blinkTimerTriggered || lightTimerTriggered || buttonPressedEvent) {
     
-    if(state == LightState::YellowBlinking)
-    {
-      // Toggle the yellow LED state
-      static bool isYellowOn = true;
-      if (isYellowOn) {
-        handleLeds(LOW, LOW, LOW); // Turn off yellow LED
-      } else {
-        handleLeds(LOW, HIGH, LOW); // Turn on yellow LED
-      }
+    if(blinkTimerTriggered || buttonPressedEvent) {
       
-      isYellowOn = !isYellowOn;
-    }
-    else
-    {
-      // Toggle the green LED state
-      static bool isGreenOn = true;
-      if (isGreenOn) {
-        handleLeds(LOW, LOW, LOW); // Turn off green LED
-      } else {
-        handleLeds(HIGH, LOW, LOW); // Turn on green LED
-      }
+      state = getNextState(state, buttonPressedEvent);
       
-      isGreenOn = !isGreenOn;
+      buttonPressedEvent = false;
     }
-  }
-
-  if(blinkTimerTriggered) {
-    blinkTimerTriggered = false;
-
-    state = getNextState(state);
 
     switch( state ) {
         case LightState::Green:
-          
-          handleLeds(HIGH, LOW, LOW);
-          
-          setNewBlinkTimerInterval(GREEN_INTERVAL);
+
+            handleLeds(HIGH, LOW, LOW);
+            
+            setNewBlinkTimerInterval(GREEN_INTERVAL);
           break;
         case LightState::GreenBlinking:
-          
-          timerWrite(lightTimer, 0); // Скидання таймера
-          timerAlarmEnable(lightTimer); // Увімкнення таймера для блимання
+        
+          if(blinkTimerTriggered) {
+            
+            timerWrite(lightTimer, 0); // Скидання таймера
+            timerAlarmEnable(lightTimer); // Увімкнення таймера для блимання
 
-          setNewBlinkTimerInterval(GREEN_BLINKING_INTERVAL);
+            setNewBlinkTimerInterval(GREEN_BLINKING_INTERVAL);
+          }
+          else if(lightTimerTriggered) {
+            
+            // Toggle the green LED state
+            static bool isGreenOn = true;
+            if (isGreenOn) {
+              handleLeds(LOW, LOW, LOW); // Turn off green LED
+            } else {
+              handleLeds(HIGH, LOW, LOW); // Turn on green LED
+            }
+            
+            isGreenOn = !isGreenOn;
+          }
           break;
         case LightState::Yellow:
-        
+
           handleLeds(LOW, HIGH, LOW);
           
           timerAlarmDisable(lightTimer);
@@ -195,18 +176,35 @@ void loop() {
           setNewBlinkTimerInterval(YELLOW_INTERVAL);
           break;
         case LightState::Red:
-          
+            
           handleLeds(LOW, LOW, HIGH);
 
           setNewBlinkTimerInterval(RED_INTERVAL);
           break;
         case LightState::RedYellow:
-
-          handleLeds(LOW, HIGH, HIGH);
           
+          handleLeds(LOW, HIGH, HIGH);
+        
           setNewBlinkTimerInterval(RED_YELLOW_INTERVAL);
           break;
+        case LightState::YellowBlinking:
+
+          if(lightTimerTriggered) {
+            
+            static bool isYellowOn = true;
+            if (isYellowOn) {
+              handleLeds(LOW, LOW, LOW); // Turn off yellow LED
+            } else {
+              handleLeds(LOW, HIGH, LOW); // Turn on yellow LED
+            }
+            
+            isYellowOn = !isYellowOn;
+          }
+          break;
       }
+
+      blinkTimerTriggered = false;
+      lightTimerTriggered = false;
     }
 }
 
@@ -224,33 +222,42 @@ void pollingButton()
   bool rawState = digitalRead(BUTTON_PIN) == LOW;
 
   // Виявлення зміни фізичного стану
-  if (rawState != lastRawState)
-  {
+  if (rawState != lastRawState) {
+    
     lastRawState = rawState;
     candidateState = rawState;
     candidateSince = currentTime;
   }
 
   // Перевірка стабільності протягом 50 мс
-  if (currentTime - candidateSince >= DEBOUNCE_TIME)
-  {
+  if (currentTime - candidateSince >= DEBOUNCE_TIME) {
+    
     bool stablePressed = buttonState == ButtonState::PRESSED;
 
-    if (candidateState != stablePressed)
-    {
+    if (candidateState != stablePressed) {
+      
       buttonState = candidateState
         ? ButtonState::PRESSED
         : ButtonState::RELEASED;
-
-        if (buttonState == ButtonState::PRESSED)
-        {
-          buttonPressedEvent = true;
-        }
+ 
+        buttonPressedEvent = buttonState == ButtonState::PRESSED;
     }
   }
 }
 
-LightState getNextState(LightState currentState) {
+LightState getNextState(LightState currentState, bool buttonPressed) {
+
+  if (buttonPressedEvent) {
+    if(state == LightState::YellowBlinking) {
+      
+      return LightState::Green;
+    }
+    else {
+      
+      return LightState::YellowBlinking;
+    }
+  }
+  else {
     switch (currentState) {
         case LightState::Green:
             return LightState::GreenBlinking;
@@ -263,6 +270,7 @@ LightState getNextState(LightState currentState) {
         case LightState::RedYellow:
             return LightState::Green;
     }
+  }
 }
 
 void handleLeds(uint8_t green, uint8_t yellow, uint8_t red)
