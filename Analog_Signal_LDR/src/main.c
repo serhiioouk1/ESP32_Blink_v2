@@ -22,6 +22,7 @@
 #define SAMPLE_PERIOD_US       (50 * 1000)
 #define THRESHOLD_ON_RAW       1500
 #define THRESHOLD_OFF_RAW      1800
+#define SMA_BUFFER_SIZE 20
 
 #define ADC_MAX_RAW            4095
 #define APPROX_ADC_FULL_MV     3300
@@ -32,9 +33,9 @@ static int read_averaged(adc_oneshot_unit_handle_t handle,
                          adc_channel_t channel)
 {
     int64_t sum = 0;
-    int valid_samples = 0;               // рахуємо лише вдалі заміри — не всі SAMPLES обов'язково пройдуть без помилок
+    uint8_t valid_samples = 0;               // рахуємо лише вдалі заміри — не всі SAMPLES обов'язково пройдуть без помилок
 
-    for (int i = 0; i < SAMPLES; i++) {
+    for (uint8_t i = 0; i < SAMPLES; i++) {
         int raw = 0;
 
         if (adc_oneshot_read(handle, channel, &raw) == ESP_OK) {
@@ -48,6 +49,31 @@ static int read_averaged(adc_oneshot_unit_handle_t handle,
     }
 
     return (int)(sum / valid_samples);
+}
+
+//SMA20 розраховується за допомогою кільцевого буфера (Ring Buffer)
+static int calculateSMA(int newValue)
+{
+    static int buffer[SMA_BUFFER_SIZE] = {0};
+    static uint8_t bufferIndex = 0;
+    static uint8_t samplesCount = 0;
+    static int64_t sum = 0;
+
+    if (samplesCount == SMA_BUFFER_SIZE)
+    {
+        sum -= buffer[bufferIndex];
+    }
+    else
+    {
+        samplesCount++;
+    }
+
+    buffer[bufferIndex] = newValue;
+    sum += newValue;
+
+    bufferIndex = (bufferIndex + 1) % SMA_BUFFER_SIZE;
+
+    return (int)(sum / samplesCount);
 }
 
 void app_main(void)
@@ -98,32 +124,34 @@ void app_main(void)
         if (now - last_sample >= SAMPLE_PERIOD_US) {   // неблокуюча дискретизація LDR за розкладом
             last_sample = now;
 
-            const int level = read_averaged(adc1_handle, LDR_CHANNEL);
+            const int adc_level = read_averaged(adc1_handle, LDR_CHANNEL);
+            const int sma_level = calculateSMA(adc_level);
 
-            if (level >= 0) {
+            if (sma_level >= 0) {
                 int voltage_mv =
-                    (level * APPROX_ADC_FULL_MV) / ADC_MAX_RAW;   // "наївна" формула — запасний варіант
+                    (sma_level * APPROX_ADC_FULL_MV) / ADC_MAX_RAW;   // "наївна" формула — запасний варіант
 
                 if (calibration_available) {
                     int calibrated_mv = 0;
                     if (adc_cali_raw_to_voltage(
-                            cali_handle, level, &calibrated_mv) == ESP_OK) {
+                            cali_handle, sma_level, &calibrated_mv) == ESP_OK) {
                         voltage_mv = calibrated_mv;               // а тут — точне, якщо калібрування вдалося
                     }
                 }
 
-                if (!led_on && level < THRESHOLD_ON_RAW) {
+                if (!led_on && sma_level < THRESHOLD_ON_RAW) {
                     led_on = true;
-                } else if (led_on && level > THRESHOLD_OFF_RAW) {
+                } else if (led_on && sma_level > THRESHOLD_OFF_RAW) {
                     led_on = false;
                 }
 
                 gpio_set_level(LED_PIN, led_on ? 1 : 0);
 
                 ESP_LOGI(TAG,
-                         "LDR=%4d (%d mV)\tLED=%s",
-                         level,
+                         "LDR=%4d (%d mV) SMA=%4d\tLED=%s",
+                         adc_level,
                          voltage_mv,
+                         sma_level,
                          led_on ? "ON" : "OFF");
             } else {
                 ESP_LOGW(TAG, "Failed to read LDR ADC channel");   // АЦП повернув помилку — не тихо ігноруємо
